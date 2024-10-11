@@ -188,10 +188,87 @@ app.delete("/delete-client/:id", async(req,res)=> {
     }finally{
         client.release()
     }
+});
+
+app.delete("/delete-client", async(req,res)=> {
+    const { id } = req.params
+
+    if (!id) {
+        return res.status(404).json({message: "No se encontro el cliente"})
+    }
+
+    const client = await clientDb.connect()
+    const query = `DELETE FROM clientes WHERE id = $1`
+    try {
+        const response = await client.query(query,[id])
+        if (response.rowCount === 0) throw new Error("Error al eliminar el cliente")
+        return res.status(200).json({message: "Se elimino el cliente exitosamente!"}) 
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: "Error al eliminar el cliente"})
+    }finally{
+        client.release()
+    }
 })
 
+app.get("/get-client-file/:id", async (req, res) => {
+    const { id } = req.params;
+    
+    if (!id) {
+        return res.status(404).json({ message: "No se proporcionó el ID del cliente." });
+    }
+
+    const query1 = "SELECT nombre_completo FROM clientes WHERE id = $1";
+    const query2 = "SELECT * FROM deudas WHERE cliente_id = $1";
+    const query3 = "SELECT * FROM entregas WHERE deuda_id = $1";
+
+    const client = await clientDb.connect(); 
+
+    try {
+        const [nombre_cliente, deudas] = await Promise.all([
+            client.query(query1, [id]), 
+            client.query(query2, [id])  
+        ]);
 
 
+        const entregas = await Promise.all(
+            deudas.rows.map(deuda => client.query(query3, [deuda.id])) 
+        );
+
+        return res.status(200).json({
+            nombre_cliente: nombre_cliente.rows[0].nombre_completo,
+            deudas: deudas.rows,
+            entregas: entregas.map(result => result.rows) 
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Error de servidor, no se pudo obtener los datos del cliente." });
+    } finally {
+        client.release();
+    }
+});
+
+app.post("/save-client-debt/:id", upload.none(), async(req,res)=> {
+    const { productos, buyDate, expDate, clientDebtId } = req.body
+    const { id } = req.params  
+    const insertQuery = `INSERT INTO deudas(cliente_id, detalles, deuda_uuid, fecha_compra, fecha_vencimiento) VALUES ($1, $2, $3,$4, $5)`
+    
+    const client = await clientDb.connect()
+    try {
+        const result = await client.query(insertQuery,[id,productos, clientDebtId, buyDate, expDate])
+        if (result.rowCount > 0) {
+            return res.status(200).json({message: `Se guardó la deuda exitosamente!, su ID de deuda es: ${clientDebtId}`})
+        }else{
+            throw new Error("Error al guardar la deuda")
+        }
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: "Error al procesar la solicitud", error})
+    }finally{
+        client.release()
+    }
+})
 
 
 
