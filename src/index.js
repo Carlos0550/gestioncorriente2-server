@@ -220,25 +220,24 @@ app.get("/get-client-file/:id", async (req, res) => {
 
     const query1 = "SELECT nombre_completo FROM clientes WHERE id = $1";
     const query2 = "SELECT * FROM deudas WHERE cliente_id = $1";
-    const query3 = "SELECT * FROM entregas WHERE deuda_id = $1";
+    const query3 = "SELECT * FROM entregas WHERE id_entrega_cliente = $1";
 
     const client = await clientDb.connect(); 
 
     try {
-        const [nombre_cliente, deudas] = await Promise.all([
+        const [nombre_cliente, deudas, entregas] = await Promise.all([
             client.query(query1, [id]), 
-            client.query(query2, [id])  
+            client.query(query2, [id]),
+            client.query(query3, [id])
         ]);
 
 
-        const entregas = await Promise.all(
-            deudas.rows.map(deuda => client.query(query3, [deuda.id])) 
-        );
+        
 
         return res.status(200).json({
             nombre_cliente: nombre_cliente.rows[0].nombre_completo,
             deudas: deudas.rows,
-            entregas: entregas.map(result => result.rows) 
+            entregas: entregas.rows
         });
 
     } catch (error) {
