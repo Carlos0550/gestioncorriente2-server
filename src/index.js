@@ -84,7 +84,7 @@ app.delete("/delete-user/:id", async(req,res)=> {
         return res.status(200).json({message: "Se elimino el usuario exitosamente!"}) 
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: "Error al eliminar el usuario"})
+        return res.status(500).json({message: error.message ||  "Error al eliminar el usuario"})
     }finally{
         client.release()
     }
@@ -170,50 +170,50 @@ app.put("/edit-client/:id", upload.none(), async(req,res)=> {
         }
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: "Error al procesar la solicitud", error})
+        return res.status(500).json({message: error.message || "Error al procesar la solicitud", error})
     }finally{
         client.release()
     }
 })
 
 app.delete("/delete-client/:id", async(req,res)=> {
-    const {id} = req.params
-    const client = await clientDb.connect()
-    const query = `DELETE FROM clientes WHERE id = $1`
-    try {
-        const response = await client.query(query,[id])
-        if (response.rowCount > 0) {
-            return res.status(200).json({message: "Se elimino el cliente exitosamente!"})
-        }else{
-            return res.status(404).json({message: "No se encontro el cliente"})
-        }
-    } catch (error) {
-        console.log(error)
-        return res.status(500).json({message: "Error al eliminar el cliente"})
-    }finally{
-        client.release()
-    }
-});
-
-app.delete("/delete-client", async(req,res)=> {
-    const { id } = req.params
+   const { id } = req.params
 
     if (!id) {
         return res.status(404).json({message: "No se encontro el cliente"})
     }
 
     const client = await clientDb.connect()
-    const query = `DELETE FROM clientes WHERE id = $1`
+    const query4 = `DELETE FROM clientes WHERE id = $1`
+    const query3 = `DELETE FROM deudas WHERE cliente_id = $1`
+    const query2 = `DELETE FROM entregas WHERE id_entrega_cliente = $1`
+    const query1 = `DELETE FROM historial_deudas WHERE historial_cliente_id = $1`
     try {
-        const response = await client.query(query,[id])
-        if (response.rowCount === 0) throw new Error("Error al eliminar el cliente")
-        return res.status(200).json({message: "Se elimino el cliente exitosamente!"}) 
+        await client.query("BEGIN")
+        await client.query(query1, [id]);
+        const [responses] = await Promise.all([
+            client.query(query2, [id]),
+            client.query(query3, [id]),
+            client.query(query4, [id]),
+        ]);
+        if (responses.rowCount[2] === 0) {
+            throw new Error("Error al eliminar el cliente, intente nuevamente!")
+        }
+
+        await client.query("COMMIT")
+        return res.status(200).json({message: "Se elimino el cliente exitosamente!"})
+           
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: "Error al eliminar el cliente"})
+        await client.query("ROLLBACK")
+        return res.status(500).json({message: error.message || "Error al eliminar el cliente"})
     }finally{
         client.release()
     }
+});
+
+app.delete("/delete-client", async(req,res)=> {
+    
 })
 
 app.get("/get-client-file/:id", async (req, res) => {
@@ -268,7 +268,7 @@ app.post("/save-client-debt/:id", upload.none(), async(req,res)=> {
         }
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: "Error al procesar la solicitud", error})
+        return res.status(500).json({message:  error.message || "Error al procesar la solicitud", error})
     }finally{
         client.release()
     }
@@ -294,13 +294,13 @@ app.post("/save-client-deliver/:id",upload.none(), async(req,res)=> {
         return res.status(200).json({message: "Entrega guardada y estado de deuda actualizado!"})
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: error || "Error de servidor, no se pudo guardar la entrega"})
+        return res.status(500).json({message: error.message || "Error de servidor, no se pudo guardar la entrega"})
     }finally{
         client.release
     }
 })
 
-app.put("/UPDATE-client-deliver/:id",upload.none(), async(req,res)=> {
+app.put("/update-client-deliver/:id",upload.none(), async(req,res)=> {
     const { id } = req.params
     const { deliversData } = req.body
     if (!deliversData) {
@@ -337,14 +337,13 @@ app.delete("/delete-client-deliver/:id", async(req,res) => {
 
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: error || "Error interno del servidor al eliminar la entrega, intente nuevamente!"})
+        return res.status(500).json({message: error.message || "Error interno del servidor al eliminar la entrega, intente nuevamente!"})
     }finally{
         client.release()
     }
 })
 
 app.put("/update-client-debt/:clientId", upload.none(), async(req,res)=> {
-    const { clientId } = req.params
     const { productos, buyDate, expDate, clientDebtId } = req.body
 
     const updateQuery = `UPDATE deudas SET fecha_compra = $1, fecha_vencimiento = $2, detalles = $3 WHERE deuda_uuid = $4`
@@ -358,7 +357,7 @@ app.put("/update-client-debt/:clientId", upload.none(), async(req,res)=> {
         return res.status(200).json({message: "Deuda actualizada"})
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: error || "Error interno del servidor al actualizar la deuda, intente nuevamente!"})
+        return res.status(500).json({message: error.message || "Error interno del servidor al actualizar la deuda, intente nuevamente!"})
     }finally{
         client.release()
     }
@@ -375,7 +374,7 @@ app.delete("/delete-client-debt/:debtId", async(req,res)=> {
         return res.status(200).json({message: "Deuda eliminada exitosamente"})
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: error || "Error interno del servidor al eliminar la deuda, intente nuevamente!"})
+        return res.status(500).json({message: error.message || "Error interno del servidor al eliminar la deuda, intente nuevamente!"})
     }finally{
         client.release()
     }
@@ -439,11 +438,11 @@ app.post("/cancel-client-debts/:clientId", async(req,res)=> {
     } catch (error) {
         console.log(error)
         await client.query("ROLLBACK")
-        return res.status(500).json({message: error || "Error interno del servidor al cancelar la deuda, intente nuevamente!"})
+        return res.status(500).json({message: error.message || "Error interno del servidor al cancelar la deuda, intente nuevamente!"})
     }finally{
         client.release()
     }
-})
+});
 
 // app.put("/update-debt-status/:clientId", async(req,res)=> {
 //     const { clientId } = req.params
