@@ -281,16 +281,20 @@ app.post("/save-client-deliver/:id",upload.none(), async(req,res)=> {
         return res.status(400).json({message: "No se pudo guardar la entrega, faltan datos obligatorios!"})
     }
     const insertQuery = `INSERT INTO entregas(detalle_entrega, id_entrega_cliente) VALUES ($1, $2)`
+    const updateQuery = `UPDATE deudas SET estado = true WHERE cliente_id = $1`
+
     const client = await clientDb.connect()
     try {
+        await client.query("BEGIN")
         const result = await client.query(insertQuery,[deliversData, id])
-        if (result.rowCount > 0) {
-            return res.status(200).json({message: "Entrega guardada!"})
-        }
-        return res.status(400).json({message: "Error al guardar la entrega, por favor intente nuevamente"})
+        if (result.rowCount === 0) throw new Error("Error al guardar la entrega, intente nuevamente!")
+        const result2 = await client.query(updateQuery,[id])
+        if (result2.rowCount === 0) throw new Error("Error al actualizar el estado de la deuda, intente nuevamente!")
+        await client.query("COMMIT")
+        return res.status(200).json({message: "Entrega guardada y estado de deuda actualizado!"})
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: "Error de servidor, no se pudo guardar la entrega"})
+        return res.status(500).json({message: error || "Error de servidor, no se pudo guardar la entrega"})
     }finally{
         client.release
     }
@@ -441,9 +445,21 @@ app.post("/cancel-client-debts/:clientId", async(req,res)=> {
     }
 })
 
-app.put("/update-debt-status/:", async(req,res)=> {
-
-})
+// app.put("/update-debt-status/:clientId", async(req,res)=> {
+//     const { clientId } = req.params
+//     const client = await clientDb.connect()
+//     try {
+//         const response = await client.query(query,[clientId])
+//         if (response.rowCount > 0) {
+//             return res.status(200).json({message: "Se actualizo el estado de la deuda"})
+//         }else{
+//             throw new Error("No se encontro la deuda para actualizar su estado")
+//         }
+//     } catch (error) {
+//         console.log(error)
+//         return res.status(500).json({message: error || "Error interno del servidor al actualizar el estado de la deuda, intente nuevamente!"})
+//     }
+// })
 
 
 
