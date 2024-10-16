@@ -383,7 +383,7 @@ app.delete("/delete-client-debt/:debtId", async(req,res)=> {
 cron.schedule("0 0 * * *", async() => {
     const client = await clientDb.connect()
     const argentinaTime = dayjs().tz("America/Buenos_Aires").format("YYYY-MM-DD")
-    const query = `UPDATE deudas SET estado = false WHERE fecha_vencimiento <= $1 RETURNING *`
+    const query = `UPDATE deudas SET estado = false WHERE fecha_vencimiento <= $1 AND estado = true RETURNING *`
     try {
         console.log("EJECUTANDO TAREAS CRON")
         const response = await client.query(query,[argentinaTime])
@@ -444,28 +444,105 @@ app.post("/cancel-client-debts/:clientId", async(req,res)=> {
     }
 });
 
-// app.put("/update-debt-status/:clientId", async(req,res)=> {
-//     const { clientId } = req.params
-//     const client = await clientDb.connect()
-//     try {
-//         const response = await client.query(query,[clientId])
-//         if (response.rowCount > 0) {
-//             return res.status(200).json({message: "Se actualizo el estado de la deuda"})
-//         }else{
-//             throw new Error("No se encontro la deuda para actualizar su estado")
-//         }
-//     } catch (error) {
-//         console.log(error)
-//         return res.status(500).json({message: error || "Error interno del servidor al actualizar el estado de la deuda, intente nuevamente!"})
-//     }
-// })
+app.get("/get-all-expirations", async(req,res)=> {
+    const selectQuery1 = `SELECT * FROM deudas WHERE estado = false`
+    const selectQuery2 = `SELECT nombre_completo, id FROM clientes`
+    const client = await clientDb.connect()
+    try {
+        const [debts, clients] = await Promise.all([
+            client.query(selectQuery1),
+            client.query(selectQuery2)
+        ])
 
+        if (debts.rowCount === 0 ) {
+            return res.status(200).json({message: "No se encontraron deudas vencidas"})
+        }
+        const processedDebts = debts.rows.map(debt => {
+            return {
+                id: debt.id,
+                fechaVencimiento: dayjs(debt.fecha_vencimiento).format("DD/MM/YYYY"),
+                cliente: clients.rows.find(client => client.id === debt.cliente_id).nombre_completo,
+                clientId: debt.cliente_id   
+            }
+        })
 
+        const uniqueClients = processedDebts.reduce((acc,curr)=> {
+            const found = acc.find(item => item.clientId === curr.clientId)
+            if (found) {
+                found.deudasVencidas += 1;
+                found.fechaVencimiento.push(curr.fechaVencimiento)
+            }else{
+                acc.push({
+                    clientId: curr.clientId,
+                    cliente: curr.cliente,
+                    deudasVencidas: 1,
+                    fechaVencimiento: [curr.fechaVencimiento]
+                })
+            }
+            return acc
+        },[])
+        return res.status(200).json({
+            vencimientos: uniqueClients.sort((a,b)=> a.clientId - b.clientId)
+        })
 
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: "Error al obtener los vencimientos"})
+    }finally{
+        client.release()
+    }
+})
 
+app.post("/save-action-logs", async(req,res)=> {
+    const { 
+        userId, 
+        userName, 
+        userImage, 
+        actionType,
+        entity,
+        oldData,
+        newData,
+        details,
+        day,
+        time
+    } = req.body
+    const query = `
+        INSERT INTO reports(user_id, user_name, user_image, action_type, entity, old_data, new_data, details, day, time) VALUES ($1, $2, $3, $4, $5,$6, $7, $8, $9, $10)
+    `
+    const insertValues = [userId, userName, userImage, actionType, entity, oldData, newData, details, day, time]
+    
+    const client = await clientDb.connect()
+    try {
+        console.log(req.body)
+        const response = await client.query(query,insertValues)
+        console.log(response)
+        if (response.rowCount === 0) throw new Error("No se pudo insertar los logs", response)
+        return res.status(200).send()
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: error.message || "Error al guardar los logs."})
+    }finally{
+        client.release()
+    }
+});
 
-
-
+app.get("/get-logs", async(req,res)=> {
+    const query = `SELECT * FROM reports`
+    const client = await clientDb.connect()
+    try {
+        const result = await client.query(query)
+        if (result.rowCount > 0) {
+            return res.status(200).json({message: "Reportes Obtenidos!", reports: result.rows})
+        }else{
+            return res.status(404).json({message: "No se encontraron reportes.", reports: []})
+        }
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: "Error en el servidor al obtener los reportes."})
+    }finally{
+        client.release()
+    }
+})
 
 
 app.listen(PORT, ()=>{
