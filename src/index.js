@@ -404,7 +404,7 @@ app.delete("/delete-client-debt/:debtId", async (req, res) => {
     }
 });
 
-cron.schedule("15 * * * *", async () => {
+cron.schedule("*/45 * * * *", async () => {
     const client = await clientDb.connect()
     const argentinaTime = dayjs().tz("America/Buenos_Aires").format("YYYY-MM-DD")
     const query = `UPDATE deudas SET estado = false WHERE fecha_vencimiento <= $1 AND estado = true RETURNING *`
@@ -566,7 +566,41 @@ app.get("/get-logs", async (req, res) => {
     } finally {
         client.release()
     }
-})
+});
+
+app.get("/get-dashboard-data", async (req, res) => {
+    const startMonth = dayjs().tz("America/Buenos_Aires").startOf("month").format("YYYY-MM-DD");
+    const endMonth = dayjs().tz("America/Buenos_Aires").endOf("month").format("YYYY-MM-DD");
+
+    const query1 = `SELECT * FROM entregas
+        WHERE create_date >= '${startMonth}' AND
+        create_date <= '${endMonth}'`;
+
+    const query2 = `SELECT * FROM deudas
+        WHERE fecha_vencimiento >= '${startMonth}' AND
+        fecha_vencimiento <= '${endMonth}'`;
+
+    const client = await clientDb.connect();  // Asegúrate de usar 'await' para la conexión asíncrona
+
+    try {
+        const [pagos, vencimientos] = await Promise.all([
+            client.query(query1),
+            client.query(query2)
+        ]);
+
+        return res.status(200).json({
+            pagos: pagos.rows,
+            vencimientos: vencimientos.rows
+        });
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "Error en el servidor al obtener la información" });
+    } finally {
+        client.release();  // Asegúrate de liberar la conexión al final
+    }
+});
+
 
 
 app.listen(PORT, () => {
