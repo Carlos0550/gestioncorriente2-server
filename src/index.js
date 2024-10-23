@@ -12,6 +12,7 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
+app.use(express.text())
 app.use(cors())
 
 const storage = multer.memoryStorage();
@@ -597,6 +598,26 @@ app.get("/get-dashboard-data", async (req, res) => {
         client.release(); 
     }
 });
+
+app.post("/save-branch", async(req,res)=> {
+    const client = await clientDb.connect()
+    const insertQuery = `INSERT INTO puntos_venta(business_name) VALUES($1)`;
+    const businessName = req.body;
+    if (!businessName || businessName === null || businessName === undefined) return res.status(204).json({message: "No se proporcionó el nombre de la nueva sucursal."});
+
+    try {
+        const response = await client.query(insertQuery,[businessName])
+
+        if(response.rowCount === 0) throw new Error("Error al guardar la nueva sucursal.")
+        
+        return res.status(200).json({message: "Sucursal guardada!"})
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({message: error.message || "Error del servidor al guardar la nueva sucursal."})
+    }finally{
+        client.release()
+    }
+})
 
 
 
