@@ -32,7 +32,7 @@ app.post("/save-new-user", upload.none(), async (req, res) => {
     const queryAdmin = `
         INSERT INTO usuarios_permitidos (userName, userEmail, userId, userImage, autorizado, administrador)
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (unique_userid) DO NOTHING;
+        ON CONFLICT ON CONSTRAINT uq_unique_user_email DO NOTHING;
     `;
 
     const query1 = `SELECT * FROM usuarios_permitidos WHERE userEmail = $1`;
@@ -45,7 +45,6 @@ app.post("/save-new-user", upload.none(), async (req, res) => {
         console.log("Response1:", response1?.rows);
 
         if (response1.rowCount === 0) {
-            // Si el usuario no existe, verificar si es administrador
             if (userEmail === process.env.CLERK_ADMINISTRATOR) {
                 const responseAdmin = await client.query(queryAdmin, [userName, userEmail, userId, userImage, true, true]);
                 console.log("Response Admin: ", responseAdmin.rows);
@@ -54,7 +53,6 @@ app.post("/save-new-user", upload.none(), async (req, res) => {
                     return res.status(200).json({ message: "Bienvenido nuevamente!", autorizado: true, administrador: true, currentUser: responseAdmin.rows[0] });
                 }
             }
-            // Guardar el nuevo usuario
             const response2 = await client.query(query2, values);
             if (response2.rowCount > 0) {
                 return res.status(404).json({ message: "Se guardó el nuevo usuario, contacte con el administrador para habilitar su acceso." });
@@ -63,7 +61,6 @@ app.post("/save-new-user", upload.none(), async (req, res) => {
             }
         }
 
-        // Usuario ya registrado
         if (userEmail === process.env.CLERK_ADMINISTRATOR || response1.rows[0].autorizado) {
             return res.status(200).json({ message: response1.rows[0].autorizado ? "Bienvenido nuevamente" : "Usuario autorizado", autorizado: response1.rows[0].autorizado, administrador: response1.rows[0].administrador, currentUser: response1.rows[0] });
         }
@@ -573,19 +570,19 @@ app.get("/get-dashboard-data", async (req, res) => {
     const endMonth = dayjs().tz("America/Buenos_Aires").endOf("month").format("YYYY-MM-DD");
 
     const query1 = `SELECT * FROM entregas
-        WHERE create_date >= '${startMonth}' AND
-        create_date <= '${endMonth}'`;
+        WHERE create_date >= $1 AND
+        create_date <= $2`;
 
     const query2 = `SELECT * FROM deudas
-        WHERE fecha_vencimiento >= '${startMonth}' AND
-        fecha_vencimiento <= '${endMonth}'`;
+        WHERE fecha_vencimiento >= $1 AND
+        fecha_vencimiento <= $2 AND estado = $3`;
 
-    const client = await clientDb.connect();  // Asegúrate de usar 'await' para la conexión asíncrona
+    const client = await clientDb.connect(); 
 
     try {
         const [pagos, vencimientos] = await Promise.all([
-            client.query(query1),
-            client.query(query2)
+            client.query(query1,[startMonth,endMonth]),
+            client.query(query2,[startMonth,endMonth, true])
         ]);
 
         return res.status(200).json({
@@ -597,7 +594,7 @@ app.get("/get-dashboard-data", async (req, res) => {
         console.log(error);
         return res.status(500).json({ message: "Error en el servidor al obtener la información" });
     } finally {
-        client.release();  // Asegúrate de liberar la conexión al final
+        client.release(); 
     }
 });
 
