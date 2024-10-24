@@ -578,12 +578,12 @@ app.get("/get-dashboard-data", async (req, res) => {
         WHERE fecha_vencimiento >= $1 AND
         fecha_vencimiento <= $2 AND estado = $3`;
 
-    const client = await clientDb.connect(); 
+    const client = await clientDb.connect();
 
     try {
         const [pagos, vencimientos] = await Promise.all([
-            client.query(query1,[startMonth,endMonth]),
-            client.query(query2,[startMonth,endMonth, true])
+            client.query(query1, [startMonth, endMonth]),
+            client.query(query2, [startMonth, endMonth, true])
         ]);
 
         return res.status(200).json({
@@ -595,31 +595,117 @@ app.get("/get-dashboard-data", async (req, res) => {
         console.log(error);
         return res.status(500).json({ message: "Error en el servidor al obtener la información" });
     } finally {
-        client.release(); 
+        client.release();
     }
 });
 
-app.post("/save-branch", async(req,res)=> {
+app.post("/save-branch", async (req, res) => {
     const client = await clientDb.connect()
     const insertQuery = `INSERT INTO puntos_venta(business_name) VALUES($1)`;
     const businessName = req.body;
-    if (!businessName || businessName === null || businessName === undefined) return res.status(204).json({message: "No se proporcionó el nombre de la nueva sucursal."});
+    if (!businessName || businessName === null || businessName === undefined) return res.status(204).json({ message: "No se proporcionó el nombre de la nueva sucursal." });
 
     try {
-        const response = await client.query(insertQuery,[businessName])
+        const response = await client.query(insertQuery, [businessName])
 
-        if(response.rowCount === 0) throw new Error("Error al guardar la nueva sucursal.")
-        
-        return res.status(200).json({message: "Sucursal guardada!"})
+        if (response.rowCount === 0) throw new Error("Error al guardar la nueva sucursal.")
+
+        return res.status(200).json({ message: "Sucursal guardada!" })
     } catch (error) {
         console.log(error)
-        return res.status(500).json({message: error.message || "Error del servidor al guardar la nueva sucursal."})
-    }finally{
+        return res.status(500).json({ message: error.message || "Error del servidor al guardar la nueva sucursal." })
+    } finally {
+        client.release()
+    }
+});
+
+app.get("/get-branches", async (req, res) => {
+    const client = await clientDb.connect()
+    const getQuery = `SELECT * FROM puntos_venta`
+    try {
+        const result = await client.query(getQuery)
+
+        if (result.rowCount === 0) return res.status(404).json({ message: "No se registraron sucursales, puedes guardar una ahora" })
+
+        return res.status(200).json({ sucursales: result.rows })
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({ message: error.message || "Error en el servidor, intente nuevamente." })
+    } finally {
+        client.release()
+    }
+});
+
+app.put("/edit-branch-name", async (req, res) => {
+    const { branchId, branchName } = req.body
+    const client = await clientDb.connect()
+    if (!branchId || !branchName) {
+        return res.status(406).json({ message: "No se recibió el Nombre o el ID de la nueva sucursal." })
+    }
+    const query = `UPDATE puntos_venta SET business_name = $1 WHERE id = $2`
+
+
+    try {
+        const response = await client.query(query, [branchName, branchId])
+
+        if (response.rowCount === 0) return res.status(404).json({ message: "No se encontró en la base de datos la sucursal seleccionada." })
+
+        return res.status(200).json({ message: "Sucursal actualizada!" })
+
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({ message: "Error en el servidor, intente nuevamente." })
+    } finally {
         client.release()
     }
 })
 
+app.delete("/delete-branch/:id", async (req, res) => {
+    const { id } = req.params
+    console.log(id)
+    if (!id) {
+        return res.status(400).json({ message: "El ID no fue proporcionado o no se encontró en la base de datos." })
+    }
+    const deleteQuery = `DELETE FROM puntos_venta WHERE id = $1`
+    const client = await clientDb.connect()
+    try {
+        const result = await client.query(deleteQuery, [id])
+        console.log(result)
+        if (result.rowCount === 0) {
+            return res.status(404).json({ message: "No se encontró ningún registro con ese ID." });
+        }
 
+        return res.status(200).send()
+    } catch (error) {
+        console.log(error)
+
+        return res.status(500).json({ message: "Error en el servidor, por favor, intente nuevamente." })
+    } finally {
+        client.release()
+    }
+});
+
+app.put("/change-branch-user/:id", async (req, res) => {
+    const { id } = req.params
+    const { userId } = req.query
+    console.log(`ID: ${id}, UserID: ${userId}`);
+    if (!id || !userId) return res.status(400).json({ message: "No se pudo asignar la sucursal al usuario, intente nuevamente" })
+
+    const client = await clientDb.connect()
+    const query = `UPDATE usuarios_permitidos SET id_punto_venta = $1 WHERE userid = $2`
+
+    try {
+        const result = await client.query(query, [id, userId])
+
+        if (result.rowCount === 0) return res.status(404).json({ message: "La sucursal o el usuario no fue encontrado, intente nuevamente" })
+        return res.status(200).json({ message: "Sucursal asignada correctamente." })
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({ message: "Error interno del servidor, intente nuevamente" })
+    } finally {
+        client.release()
+    }
+})
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
